@@ -136,6 +136,10 @@ else:
                 model = MitochondriaVAE.load_from_checkpoint(model_path)
             
             model.eval()
+            
+            # Move model to CPU for inference (avoid GPU/CPU mismatch)
+            model = model.cpu()
+            
             return model, is_lstm
         
         model, is_lstm = load_model(selected_model)
