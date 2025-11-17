@@ -1,5 +1,5 @@
 """
-Page 3: Autoencoder Training and Analysis
+Page 3: Variational Autoencoder (VAE) with Classification
 """
 
 import streamlit as st
@@ -8,19 +8,20 @@ import numpy as np
 import torch
 import plotly.express as px
 import plotly.graph_objects as go
+from sklearn.metrics import classification_report, confusion_matrix
 import sys
 import os
 import glob
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.data_loader import MitochondriaDataLoader
-from src.autoencoder import MitochondriaAutoencoder
+from src.autoencoder import MitochondriaVAE, ParticipantDataset
 from src.utils import calculate_reconstruction_error
 
 # Page config
-st.set_page_config(page_title="Autoencoder", page_icon="🤖", layout="wide")
+st.set_page_config(page_title="VAE + Clasificación", page_icon="🤖", layout="wide")
 
-st.title("🤖 Autoencoder - Espacio Latente")
+st.title("🤖 VAE - Espacio Latente y Clasificación de Grupos")
 
 # Load data
 @st.cache_data
@@ -38,11 +39,19 @@ st.sidebar.header("Configuración")
 st.markdown("## 🎓 Entrenamiento del Modelo")
 
 st.markdown("""
-El autoencoder aprende una representación comprimida (espacio latente) de los datos 
-mediante una red neuronal que intenta reconstruir la entrada original.
+El **Variational Autoencoder (VAE)** es un modelo generativo que aprende una representación 
+probabilística en el espacio latente. A diferencia de un autoencoder estándar, el VAE:
 
-**Arquitectura**:
-- Input: 8 features → Encoder → Latent Space (3D) → Decoder → Output: 8 features
+- Aprende una distribución (μ, σ) en lugar de puntos fijos
+- Usa el **reparametrization trick** para hacer el proceso diferenciable
+- Incluye **KL divergence** en la pérdida para regularizar el espacio latente
+
+**Arquitectura VAE + Clasificador**:
+- Input: 8 features → Encoder → μ & σ (Latent 8D) → Decoder → Reconstruction
+- Clasificador: Latent → Hidden → 2 clases (CT/ELA)
+
+**Manejo de múltiples medidas**: Cada participante tiene n medidas que se agregan (mean pooling) 
+antes de entrenar, evitando data leakage.
 """)
 
 col1, col2 = st.columns([2, 1])
@@ -116,19 +125,96 @@ else:
         # Load model
         @st.cache_resource
         def load_model(model_path):
-            model = MitochondriaAutoencoder.load_from_checkpoint(model_path)
+            model = MitochondriaVAE.load_from_checkpoint(model_path)
             model.eval()
             return model
         
         model = load_model(selected_model)
         
-        st.success(f"✓ Modelo cargado: {os.path.basename(selected_model)}")
+        st.success(f"✓ Modelo VAE cargado: {os.path.basename(selected_model)}")
         
-        # Encode data
+        # Prepare aggregated data for evaluation
+        feature_cols = loader.get_feature_columns()
+        participant_dataset = ParticipantDataset(
+            data,
+            feature_cols,
+            aggregation='mean',
+            include_labels=True
+        )
+        
+        # Get predictions
         with torch.no_grad():
-            X_tensor = torch.FloatTensor(X_scaled)
-            latent = model.encode(X_tensor).numpy()
-            reconstructed = model(X_tensor).numpy()
+            all_latents = []
+            all_recons = []
+            all_preds = []
+            all_labels = []
+            
+            for features, label in participant_dataset:
+                features = features.unsqueeze(0)  # Add batch dimension
+                recon_x, mu, logvar, class_logits = model(features)
+                
+                all_latents.append(mu.cpu().numpy())
+                all_recons.append(recon_x.cpu().numpy())
+                all_preds.append(torch.argmax(class_logits, dim=1).cpu().numpy())
+                all_labels.append(label.cpu().numpy())
+            
+            latent = np.vstack(all_latents)
+            reconstructed = np.vstack(all_recons)
+            predictions = np.concatenate(all_preds)
+            true_labels = np.concatenate(all_labels)
+            
+        # Get aggregated features for comparison
+        agg_data = data.groupby('Participant').agg({col: 'mean' for col in feature_cols}).reset_index()
+        X_agg = agg_data[feature_cols].values
+        
+        # Classification metrics
+        st.markdown("---")
+        st.markdown("## 🎯 Resultados de Clasificación")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            accuracy = (predictions == true_labels).mean()
+            st.metric("Accuracy", f"{accuracy:.2%}")
+            
+            # Confusion matrix
+            cm = confusion_matrix(true_labels, predictions)
+            fig_cm = px.imshow(
+                cm,
+                labels=dict(x="Predicho", y="Verdadero", color="Count"),
+                x=['CT', 'ELA'],
+                y=['CT', 'ELA'],
+                text_auto=True,
+                title='Matriz de Confusión',
+                color_continuous_scale='Blues'
+            )
+            st.plotly_chart(fig_cm, use_container_width=True)
+        
+        with col2:
+            # Classification report
+            class_names = ['CT', 'ELA']
+            report = classification_report(
+                true_labels,
+                predictions,
+                target_names=class_names,
+                output_dict=True
+            )
+            
+            st.markdown("### Reporte de Clasificación")
+            report_df = pd.DataFrame(report).transpose()
+            st.dataframe(report_df.round(3), use_container_width=True)
+            
+            # Prediction distribution
+            pred_dist = pd.DataFrame({
+                'Verdadero': true_labels,
+                'Predicho': predictions
+            })
+            pred_dist['Correcto'] = pred_dist['Verdadero'] == pred_dist['Predicho']
+            
+            st.markdown(f"""
+            - **Correctos**: {pred_dist['Correcto'].sum()} / {len(pred_dist)}
+            - **Incorrectos**: {(~pred_dist['Correcto']).sum()} / {len(pred_dist)}
+            """)
         
         # Sidebar controls for visualization
         color_by = st.sidebar.selectbox(
@@ -137,59 +223,70 @@ else:
             index=0
         )
         
-        # 2D Latent space
+        # Latent space visualization
+        st.markdown("---")
+        st.markdown("## 📊 Visualización del Espacio Latente")
+        
+        # Prepare latent space data with participant info
+        latent_df = pd.DataFrame(
+            latent,
+            columns=[f'Latent_{i+1}' for i in range(latent.shape[1])]
+        )
+        latent_df['Participant'] = agg_data['Participant'].values
+        latent_df = latent_df.merge(
+            data[['Participant', 'Group', 'Sex']].drop_duplicates(),
+            on='Participant'
+        )
+        latent_df['Prediction'] = ['CT' if p == 0 else 'ELA' for p in predictions]
+        latent_df['Correcto'] = predictions == true_labels
+        
+        color_option = st.selectbox(
+            "Colorear por:",
+            ['Group', 'Prediction', 'Correcto', 'Sex']
+        )
+        
+        # 2D projection using first 2 latent dims
         st.markdown("### Proyección 2D del Espacio Latente")
         
-        df_latent = pd.DataFrame({
-            'Latent 1': latent[:, 0],
-            'Latent 2': latent[:, 1],
-            color_by: data[color_by]
-        })
-        
         fig_2d = px.scatter(
-            df_latent,
-            x='Latent 1',
-            y='Latent 2',
-            color=color_by,
-            title=f'Espacio Latente 2D (coloreado por {color_by})',
+            latent_df,
+            x='Latent_1',
+            y='Latent_2',
+            color=color_option,
+            hover_data=['Participant', 'Group', 'Prediction'],
+            title=f'Espacio Latente 2D (coloreado por {color_option})',
             template='plotly_white',
             opacity=0.7
         )
         
-        fig_2d.update_traces(marker=dict(size=8, line=dict(width=0.5, color='white')))
+        fig_2d.update_traces(marker=dict(size=12, line=dict(width=1, color='white')))
         st.plotly_chart(fig_2d, use_container_width=True)
         
-        # 3D Latent space
+        # 3D projection
         st.markdown("### Proyección 3D del Espacio Latente")
         
-        df_latent_3d = pd.DataFrame({
-            'Latent 1': latent[:, 0],
-            'Latent 2': latent[:, 1],
-            'Latent 3': latent[:, 2],
-            color_by: data[color_by]
-        })
-        
         fig_3d = px.scatter_3d(
-            df_latent_3d,
-            x='Latent 1',
-            y='Latent 2',
-            z='Latent 3',
-            color=color_by,
-            title=f'Espacio Latente 3D (coloreado por {color_by})',
+            latent_df,
+            x='Latent_1',
+            y='Latent_2',
+            z='Latent_3',
+            color=color_option,
+            hover_data=['Participant', 'Group', 'Prediction'],
+            title=f'Espacio Latente 3D (coloreado por {color_option})',
             template='plotly_white',
             opacity=0.7
         )
         
-        fig_3d.update_traces(marker=dict(size=4, line=dict(width=0.3, color='white')))
+        fig_3d.update_traces(marker=dict(size=5, line=dict(width=0.5, color='white')))
         st.plotly_chart(fig_3d, use_container_width=True)
         
         # Reconstruction quality
         st.markdown("---")
-        st.markdown("## 🎯 Calidad de Reconstrucción")
+        st.markdown("## 🔧 Calidad de Reconstrucción")
         
-        errors = calculate_reconstruction_error(X_scaled, reconstructed)
+        errors = calculate_reconstruction_error(X_agg, reconstructed)
         
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             st.metric("MSE", f"{errors['MSE']:.6f}")
@@ -200,6 +297,9 @@ else:
         with col3:
             st.metric("RMSE", f"{errors['RMSE']:.6f}")
         
+        with col4:
+            st.metric("R²", f"{errors.get('R2', 0):.4f}")
+        
         st.markdown("""
         **Interpretación**: 
         - MSE (Mean Squared Error): Error cuadrático medio
@@ -209,19 +309,26 @@ else:
         Valores más bajos indican mejor reconstrucción.
         """)
         
-        # Sample reconstructions
-        st.markdown("### Ejemplos de Reconstrucción")
+        # Sample reconstructions (participant level)
+        st.markdown("### Ejemplos de Reconstrucción (por Participante)")
         
-        n_samples = st.slider("Número de muestras a mostrar", 1, 10, 5)
-        sample_indices = np.random.choice(len(X_scaled), n_samples, replace=False)
+        n_samples = st.slider("Número de participantes a mostrar", 1, min(10, len(latent_df)), 5)
+        sample_indices = np.random.choice(len(X_agg), n_samples, replace=False)
         
         for idx in sample_indices:
-            with st.expander(f"Muestra {idx} - Grupo: {data.iloc[idx]['Group']}, Sexo: {data.iloc[idx]['Sex']}"):
+            participant_id = latent_df.iloc[idx]['Participant']
+            group = latent_df.iloc[idx]['Group']
+            pred = latent_df.iloc[idx]['Prediction']
+            correct = latent_df.iloc[idx]['Correcto']
+            
+            status = "✓ Correcto" if correct else "✗ Incorrecto"
+            
+            with st.expander(f"Participante {participant_id} - Real: {group}, Predicho: {pred} ({status})"):
                 df_comparison = pd.DataFrame({
-                    'Feature': loader.get_feature_columns(),
-                    'Original': X_scaled[idx],
+                    'Feature': feature_cols,
+                    'Original': X_agg[idx],
                     'Reconstructed': reconstructed[idx],
-                    'Error': np.abs(X_scaled[idx] - reconstructed[idx])
+                    'Error': np.abs(X_agg[idx] - reconstructed[idx])
                 })
                 
                 col1, col2 = st.columns([2, 1])
@@ -257,24 +364,33 @@ else:
         
         # Comparison with PCA
         st.markdown("---")
-        st.markdown("## 🔬 Comparación: Autoencoder vs PCA")
+        st.markdown("## 🔬 VAE vs PCA: ¿Cuál es mejor?")
         
         st.markdown("""
-        ### ¿Por qué usar ambos?
+        ### Ventajas del VAE
         
-        - **PCA**: Método lineal, rápido, interpretable. Encuentra direcciones de máxima varianza.
-        - **Autoencoder**: Método no lineal, puede capturar relaciones complejas que PCA no detecta.
+        - **No lineal**: Captura relaciones complejas que PCA (método lineal) no puede detectar
+        - **Clasificación integrada**: Predice el grupo directamente desde el espacio latente
+        - **Espacio latente estructurado**: La pérdida KL regulariza el espacio, haciéndolo más interpretable
+        - **Manejo de participantes**: Agregación explícita de múltiples medidas por participante
         
-        ### ¿Qué buscar?
+        ### Interpretación de Resultados
         
-        1. **Clusterización**: ¿Los grupos se separan mejor en el espacio latente del autoencoder?
-        2. **Estructuras no lineales**: ¿El autoencoder revela patrones que PCA no muestra?
-        3. **Calidad de reconstrucción**: Errores bajos indican que el modelo captura bien la información.
+        1. **Alta accuracy (>70%)**: Las métricas morfológicas tienen poder discriminativo entre CT/ELA
+        2. **Clusterización visible**: Los grupos forman clusters en el espacio latente
+        3. **Baja reconstrucción error**: El modelo captura bien la información de las features
         
-        ### Interpretación
+        ### ¿Cuándo preferir VAE?
         
-        Si observas clusterización clara en el espacio latente (puntos del mismo grupo cercanos entre sí),
-        sugiere que las métricas morfológicas tienen poder discriminativo entre grupos CT y ELA.
+        - Cuando buscas clasificación además de reducción dimensional
+        - Si hay relaciones no lineales entre variables
+        - Cuando necesitas un modelo generativo (puedes samplear nuevos datos)
+        
+        ### ¿Cuándo preferir PCA?
+        
+        - Para análisis exploratorio rápido
+        - Cuando la interpretabilidad lineal es importante
+        - Si el dataset es pequeño (menos overfitting)
         """)
         
         # Export latent space

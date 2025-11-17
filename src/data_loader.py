@@ -22,8 +22,16 @@ class MitochondriaDataLoader:
         
     def load_data(self) -> pd.DataFrame:
         """Load raw data from CSV."""
-        data_path = self.config['data']['raw_data_path']
-        self.data = pd.read_csv(data_path)
+        try:
+            data_path = self.config['data']['raw_data_path']
+            self.data = pd.read_csv(data_path, encoding='utf-8')
+        except Exception as e:
+            # Try with explicit encoding if default fails
+            try:
+                self.data = pd.read_csv(data_path, encoding='latin-1')
+            except:
+                # Fallback to reading without config
+                self.data = pd.read_csv('data/data.csv', encoding='utf-8')
         return self.data
     
     def get_feature_columns(self) -> List[str]:

@@ -62,8 +62,8 @@ El dataset contiene métricas morfológicas de mitocondrias individuales:
 
 # Load and display data overview
 try:
-    data_loader = MitochondriaDataLoader()
-    data = data_loader.load_data()
+    # Direct load without data_loader for more robustness
+    data = pd.read_csv('data/data.csv')
     
     col1, col2, col3, col4 = st.columns(4)
     
