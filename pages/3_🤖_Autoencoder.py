@@ -15,7 +15,7 @@ import glob
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.data_loader import MitochondriaDataLoader
-from src.autoencoder import MitochondriaVAE, ParticipantDataset
+from src.autoencoder import MitochondriaVAE, LSTMVariationalAutoencoder, ParticipantDataset, ParticipantSequenceDataset, collate_sequences
 from src.utils import calculate_reconstruction_error
 
 # Page config
@@ -122,50 +122,104 @@ else:
     )
     
     try:
-        # Load model
+        # Detect model type and load accordingly
         @st.cache_resource
         def load_model(model_path):
-            model = MitochondriaVAE.load_from_checkpoint(model_path)
+            # Try to detect model type from filename
+            is_lstm = 'lstm' in os.path.basename(model_path).lower()
+            
+            if is_lstm:
+                st.info("🔬 Detectado: LSTM-VAE (preserva secuencias)")
+                model = LSTMVariationalAutoencoder.load_from_checkpoint(model_path)
+            else:
+                st.info("📊 Detectado: VAE estándar (con agregación)")
+                model = MitochondriaVAE.load_from_checkpoint(model_path)
+            
             model.eval()
-            return model
+            return model, is_lstm
         
-        model = load_model(selected_model)
+        model, is_lstm = load_model(selected_model)
         
-        st.success(f"✓ Modelo VAE cargado: {os.path.basename(selected_model)}")
+        st.success(f"✓ Modelo cargado: {os.path.basename(selected_model)}")
         
-        # Prepare aggregated data for evaluation
+        # Prepare data according to model type
         feature_cols = loader.get_feature_columns()
-        participant_dataset = ParticipantDataset(
-            data,
-            feature_cols,
-            aggregation='mean',
-            include_labels=True
-        )
         
-        # Get predictions
-        with torch.no_grad():
-            all_latents = []
-            all_recons = []
-            all_preds = []
-            all_labels = []
+        if is_lstm:
+            # LSTM-VAE: use sequences
+            st.markdown("**Modo**: Usando secuencias completas por participante")
             
-            for features, label in participant_dataset:
-                features = features.unsqueeze(0)  # Add batch dimension
-                recon_x, mu, logvar, class_logits = model(features)
+            # Create sequence dataset
+            participant_dataset = ParticipantSequenceDataset(
+                data,
+                feature_cols,
+                include_labels=True
+            )
+            
+            # Get predictions for LSTM model
+            with torch.no_grad():
+                all_latents = []
+                all_preds = []
+                all_labels = []
+                all_participants = []
                 
-                all_latents.append(mu.cpu().numpy())
-                all_recons.append(recon_x.cpu().numpy())
-                all_preds.append(torch.argmax(class_logits, dim=1).cpu().numpy())
-                all_labels.append(label.cpu().numpy())
+                for idx in range(len(participant_dataset)):
+                    seq, length, label = participant_dataset[idx]
+                    seq = seq.unsqueeze(0)  # Add batch dimension
+                    length = torch.tensor([length.item()])  # Ensure it's a proper tensor
+                    
+                    # Get latent and prediction
+                    mu = model.get_latent(seq, length)
+                    _, _, _, class_logits = model(seq, length)
+                    
+                    all_latents.append(mu.cpu().numpy())
+                    all_preds.append(torch.argmax(class_logits, dim=1).cpu().numpy())
+                    all_labels.append(label.cpu().numpy() if label.dim() > 0 else np.array([label.item()]))
+                    all_participants.append(participant_dataset.participants[idx])
+                
+                latent = np.vstack(all_latents)
+                predictions = np.concatenate(all_preds)
+                true_labels = np.concatenate(all_labels)
+                participants_list = all_participants
             
-            latent = np.vstack(all_latents)
-            reconstructed = np.vstack(all_recons)
-            predictions = np.concatenate(all_preds)
-            true_labels = np.concatenate(all_labels)
+            reconstructed = None  # LSTM reconstruction is per-sequence, skip for now
+            X_agg = None
             
-        # Get aggregated features for comparison
-        agg_data = data.groupby('Participant').agg({col: 'mean' for col in feature_cols}).reset_index()
-        X_agg = agg_data[feature_cols].values
+        else:
+            # Standard VAE: use aggregation
+            st.markdown("**Modo**: Usando agregación (mean pooling) por participante")
+            
+            participant_dataset = ParticipantDataset(
+                data,
+                feature_cols,
+                aggregation='mean',
+                include_labels=True
+            )
+            
+            # Get predictions
+            with torch.no_grad():
+                all_latents = []
+                all_recons = []
+                all_preds = []
+                all_labels = []
+                
+                for features, label in participant_dataset:
+                    features = features.unsqueeze(0)  # Add batch dimension
+                    recon_x, mu, logvar, class_logits = model(features)
+                    
+                    all_latents.append(mu.cpu().numpy())
+                    all_recons.append(recon_x.cpu().numpy())
+                    all_preds.append(torch.argmax(class_logits, dim=1).cpu().numpy())
+                    all_labels.append(label.cpu().numpy())
+                
+                latent = np.vstack(all_latents)
+                reconstructed = np.vstack(all_recons)
+                predictions = np.concatenate(all_preds)
+                true_labels = np.concatenate(all_labels)
+                
+            # Get aggregated features for comparison
+            agg_data = data.groupby('Participant').agg({col: 'mean' for col in feature_cols}).reset_index()
+            X_agg = agg_data[feature_cols].values
         
         # Classification metrics
         st.markdown("---")
@@ -232,10 +286,20 @@ else:
             latent,
             columns=[f'Latent_{i+1}' for i in range(latent.shape[1])]
         )
-        latent_df['Participant'] = agg_data['Participant'].values
+        
+        # Get participant info
+        if is_lstm:
+            # For LSTM, we already have participants_list
+            latent_df['Participant'] = participants_list
+        else:
+            # For standard VAE, get from aggregated data
+            agg_data = data.groupby('Participant').agg({col: 'mean' for col in feature_cols}).reset_index()
+            latent_df['Participant'] = agg_data['Participant'].values
+        
         latent_df = latent_df.merge(
             data[['Participant', 'Group', 'Sex']].drop_duplicates(),
-            on='Participant'
+            on='Participant',
+            how='left'
         )
         latent_df['Prediction'] = ['CT' if p == 0 else 'ELA' for p in predictions]
         latent_df['Correcto'] = predictions == true_labels
@@ -280,84 +344,85 @@ else:
         fig_3d.update_traces(marker=dict(size=5, line=dict(width=0.5, color='white')))
         st.plotly_chart(fig_3d, use_container_width=True)
         
-        # Reconstruction quality
-        st.markdown("---")
-        st.markdown("## 🔧 Calidad de Reconstrucción")
-        
-        errors = calculate_reconstruction_error(X_agg, reconstructed)
-        
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric("MSE", f"{errors['MSE']:.6f}")
-        
-        with col2:
-            st.metric("MAE", f"{errors['MAE']:.6f}")
-        
-        with col3:
-            st.metric("RMSE", f"{errors['RMSE']:.6f}")
-        
-        with col4:
-            st.metric("R²", f"{errors.get('R2', 0):.4f}")
-        
-        st.markdown("""
-        **Interpretación**: 
-        - MSE (Mean Squared Error): Error cuadrático medio
-        - MAE (Mean Absolute Error): Error absoluto medio
-        - RMSE (Root Mean Squared Error): Raíz del error cuadrático medio
-        
-        Valores más bajos indican mejor reconstrucción.
-        """)
-        
-        # Sample reconstructions (participant level)
-        st.markdown("### Ejemplos de Reconstrucción (por Participante)")
-        
-        n_samples = st.slider("Número de participantes a mostrar", 1, min(10, len(latent_df)), 5)
-        sample_indices = np.random.choice(len(X_agg), n_samples, replace=False)
-        
-        for idx in sample_indices:
-            participant_id = latent_df.iloc[idx]['Participant']
-            group = latent_df.iloc[idx]['Group']
-            pred = latent_df.iloc[idx]['Prediction']
-            correct = latent_df.iloc[idx]['Correcto']
+        # Reconstruction quality (only for standard VAE)
+        if not is_lstm and reconstructed is not None and X_agg is not None:
+            st.markdown("---")
+            st.markdown("## 🔧 Calidad de Reconstrucción")
             
-            status = "✓ Correcto" if correct else "✗ Incorrecto"
+            errors = calculate_reconstruction_error(X_agg, reconstructed)
             
-            with st.expander(f"Participante {participant_id} - Real: {group}, Predicho: {pred} ({status})"):
-                df_comparison = pd.DataFrame({
-                    'Feature': feature_cols,
-                    'Original': X_agg[idx],
-                    'Reconstructed': reconstructed[idx],
-                    'Error': np.abs(X_agg[idx] - reconstructed[idx])
-                })
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric("MSE", f"{errors['MSE']:.6f}")
+            
+            with col2:
+                st.metric("MAE", f"{errors['MAE']:.6f}")
+            
+            with col3:
+                st.metric("RMSE", f"{errors['RMSE']:.6f}")
+            
+            with col4:
+                st.metric("R²", f"{errors.get('R2', 0):.4f}")
+            
+            st.markdown("""
+            **Interpretación**: 
+            - MSE (Mean Squared Error): Error cuadrático medio
+            - MAE (Mean Absolute Error): Error absoluto medio
+            - RMSE (Root Mean Squared Error): Raíz del error cuadrático medio
+            
+            Valores más bajos indican mejor reconstrucción.
+            """)
+            
+            # Sample reconstructions (participant level)
+            st.markdown("### Ejemplos de Reconstrucción (por Participante)")
+            
+            n_samples = st.slider("Número de participantes a mostrar", 1, min(10, len(latent_df)), 5)
+            sample_indices = np.random.choice(len(X_agg), n_samples, replace=False)
+            
+            for idx in sample_indices:
+                participant_id = latent_df.iloc[idx]['Participant']
+                group = latent_df.iloc[idx]['Group']
+                pred = latent_df.iloc[idx]['Prediction']
+                correct = latent_df.iloc[idx]['Correcto']
                 
-                col1, col2 = st.columns([2, 1])
+                status = "✓ Correcto" if correct else "✗ Incorrecto"
                 
-                with col1:
-                    fig_comp = go.Figure()
+                with st.expander(f"Participante {participant_id} - Real: {group}, Predicho: {pred} ({status})"):
+                    df_comparison = pd.DataFrame({
+                        'Feature': feature_cols,
+                        'Original': X_agg[idx],
+                        'Reconstructed': reconstructed[idx],
+                        'Error': np.abs(X_agg[idx] - reconstructed[idx])
+                    })
                     
-                    fig_comp.add_trace(go.Bar(
-                        name='Original',
-                        x=df_comparison['Feature'],
-                        y=df_comparison['Original'],
-                        marker_color='steelblue'
-                    ))
+                    col1, col2 = st.columns([2, 1])
                     
-                    fig_comp.add_trace(go.Bar(
-                        name='Reconstructed',
-                        x=df_comparison['Feature'],
-                        y=df_comparison['Reconstructed'],
-                        marker_color='orange'
-                    ))
-                    
-                    fig_comp.update_layout(
-                        barmode='group',
-                        title='Original vs Reconstruido',
-                        template='plotly_white',
-                        height=350
-                    )
-                    
-                    st.plotly_chart(fig_comp, use_container_width=True)
+                    with col1:
+                        fig_comp = go.Figure()
+                        
+                        fig_comp.add_trace(go.Bar(
+                            name='Original',
+                            x=df_comparison['Feature'],
+                            y=df_comparison['Original'],
+                            marker_color='steelblue'
+                        ))
+                        
+                        fig_comp.add_trace(go.Bar(
+                            name='Reconstructed',
+                            x=df_comparison['Feature'],
+                            y=df_comparison['Reconstructed'],
+                            marker_color='orange'
+                        ))
+                        
+                        fig_comp.update_layout(
+                            barmode='group',
+                            title='Original vs Reconstruido',
+                            template='plotly_white',
+                            height=350
+                        )
+                        
+                        st.plotly_chart(fig_comp, use_container_width=True)
                 
                 with col2:
                     st.dataframe(df_comparison.round(4), use_container_width=True, height=350)

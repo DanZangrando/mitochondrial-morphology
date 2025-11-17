@@ -764,8 +764,9 @@ class LSTMVariationalAutoencoder(pl.LightningModule):
         )
         
         # Separate h and c for LSTM (use same values)
-        h_0 = hidden_init[:, :self.num_lstm_layers, :].contiguous().transpose(0, 1)
-        c_0 = torch.zeros_like(h_0)
+        # Transpose first, then make contiguous to avoid memory issues
+        h_0 = hidden_init[:, :self.num_lstm_layers, :].transpose(0, 1).contiguous()
+        c_0 = torch.zeros_like(h_0).contiguous()
         
         # Create input: repeat latent vector for each time step
         decoder_input = z.unsqueeze(1).repeat(1, seq_len, 1)
