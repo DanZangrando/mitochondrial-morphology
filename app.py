@@ -81,11 +81,71 @@ try:
         ela_count = len(data[data['Group'] == 'ELA'])
         st.metric("Grupo ELA", ela_count)
     
-    # Show data preview
-    st.markdown("### 📋 Vista Previa de los Datos")
+    # Interactive data table
+    st.markdown("### 📋 Explorador de Datos Interactivo")
     
-    with st.expander("Ver primeras filas del dataset"):
-        st.dataframe(data.head(20), use_container_width=True)
+    # Filters
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        filter_group = st.multiselect(
+            "Filtrar por Grupo",
+            options=['CT', 'ELA'],
+            default=['CT', 'ELA']
+        )
+    
+    with col2:
+        filter_sex = st.multiselect(
+            "Filtrar por Sexo",
+            options=['Male', 'Female'],
+            default=['Male', 'Female']
+        )
+    
+    with col3:
+        filter_participant = st.multiselect(
+            "Filtrar por Participante",
+            options=sorted(data['Participant'].unique()),
+            default=[]
+        )
+    
+    # Apply filters
+    filtered_data = data.copy()
+    
+    if filter_group:
+        filtered_data = filtered_data[filtered_data['Group'].isin(filter_group)]
+    
+    if filter_sex:
+        filtered_data = filtered_data[filtered_data['Sex'].isin(filter_sex)]
+    
+    if filter_participant:
+        filtered_data = filtered_data[filtered_data['Participant'].isin(filter_participant)]
+    
+    st.info(f"Mostrando {len(filtered_data)} de {len(data)} observaciones")
+    
+    # Interactive table
+    st.dataframe(
+        filtered_data,
+        use_container_width=True,
+        height=400,
+        column_config={
+            "Participant": st.column_config.NumberColumn("ID Participante", format="%d"),
+            "N mitocondrias": st.column_config.NumberColumn("N Mitocondrias", format="%d"),
+            "PROM IsoVol": st.column_config.NumberColumn("Prom IsoVol", format="%.3f"),
+            "PROM Surface": st.column_config.NumberColumn("Prom Surface", format="%.3f"),
+            "PROM Length": st.column_config.NumberColumn("Prom Length", format="%.3f"),
+            "PROM RoughSph": st.column_config.NumberColumn("Prom RoughSph", format="%.3f"),
+            "Age": st.column_config.NumberColumn("Edad", format="%d años"),
+        }
+    )
+    
+    # Download button
+    csv = filtered_data.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="📥 Descargar datos filtrados (CSV)",
+        data=csv,
+        file_name="mitochondria_filtered_data.csv",
+        mime="text/csv",
+    )
     
     # Feature description
     st.markdown("### 🔍 Métricas Analizadas")
