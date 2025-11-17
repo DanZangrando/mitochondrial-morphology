@@ -1,0 +1,55 @@
+# Configuration file for Mitochondrial Morphology Analysis
+
+# Data paths
+data:
+  raw_data_path: "data/data.csv"
+  
+# Feature columns for analysis
+features:
+  numerical:
+    - "N mitocondrias"
+    - "SUMA IsoVol"
+    - "PROM IsoVol"
+    - "SUMA Surface"
+    - "PROM Surface"
+    - "SUMA Length"
+    - "PROM Length"
+    - "SUMA RoughSph"
+    - "PROM RoughSph"
+  
+  categorical:
+    - "Group"
+    - "Sex"
+  
+  metadata:
+    - "Participant"
+    - "Age"
+
+# PCA configuration
+pca:
+  n_components: 3
+  standardize: true
+
+# Autoencoder configuration
+autoencoder:
+  architecture:
+    input_dim: 8  # Number of numerical features (excluding metadata)
+    encoder_layers: [16, 8]
+    latent_dim: 3
+    decoder_layers: [8, 16]
+  
+  training:
+    batch_size: 32
+    max_epochs: 100
+    learning_rate: 0.001
+    early_stopping_patience: 10
+    
+  logging:
+    log_dir: "logs/"
+    experiment_name: "mitochondrial_autoencoder"
+
+# Visualization
+visualization:
+  color_by_default: "Group"
+  figure_size: [10, 8]
+  style: "whitegrid"

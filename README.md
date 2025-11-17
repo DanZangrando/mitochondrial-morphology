@@ -33,15 +33,17 @@ mitochondrial-morphology/
 ├── src/
 │   ├── __init__.py
 │   ├── data_loader.py              # Carga y preprocesamiento de datos
-│   ├── exploratory_analysis.py     # Análisis exploratorio (EDA)
 │   ├── pca_analysis.py             # Implementación del PCA
-│   ├── autoencoder.py              # Arquitectura del Autoencoder (PyTorch)
-│   └── utils.py                    # Funciones auxiliares
+│   ├── autoencoder.py              # Arquitectura del Autoencoder (PyTorch Lightning)
+│   └── utils.py                    # Funciones auxiliares y visualización
 │
-├── notebooks/
-│   ├── 01_exploratory_analysis.ipynb   # EDA detallado
-│   ├── 02_pca_analysis.ipynb           # Análisis PCA
-│   └── 03_autoencoder_training.ipynb   # Entrenamiento del autoencoder
+├── pages/
+│   ├── 1_📊_EDA.py                 # Página de Análisis Exploratorio
+│   ├── 2_🎯_PCA.py                 # Página de Análisis PCA
+│   └── 3_🤖_Autoencoder.py         # Página de Entrenamiento y Visualización
+│
+├── scripts/
+│   └── train_autoencoder.py        # Script para entrenar el autoencoder
 │
 ├── models/
 │   └── .gitkeep                    # Modelos entrenados guardados aquí
@@ -52,7 +54,7 @@ mitochondrial-morphology/
 ├── config/
 │   └── config.yaml                 # Configuración del proyecto
 │
-├── app.py                          # Aplicación Streamlit principal
+├── app.py                          # Aplicación Streamlit principal (home)
 ├── requirements.txt                # Dependencias del proyecto
 ├── .gitignore                      # Archivos a ignorar en Git
 └── README.md                       # Este archivo
@@ -60,12 +62,13 @@ mitochondrial-morphology/
 
 ### Justificación de la Estructura
 
-- **`src/`**: Contiene módulos reutilizables para análisis y modelado, facilitando la separación de lógica
-- **`notebooks/`**: Análisis exploratorios paso a paso, útiles para documentación y experimentación
-- **`models/`**: Almacena checkpoints del autoencoder entrenado
-- **`logs/`**: PyTorch Lightning genera logs automáticamente para TensorBoard
-- **`config/`**: Centraliza parámetros (rutas, hiperparámetros) en un solo archivo
-- **`app.py`**: Interfaz interactiva Streamlit que integra todos los análisis
+- **`src/`**: Módulos reutilizables para análisis y modelado (backend lógico)
+- **`pages/`**: Páginas de Streamlit - arquitectura multi-page nativa de Streamlit
+- **`scripts/`**: Scripts Python ejecutables (ej: entrenamiento del autoencoder)
+- **`models/`**: Checkpoints del autoencoder entrenado (generados por PyTorch Lightning)
+- **`logs/`**: Logs de TensorBoard generados automáticamente por PyTorch Lightning
+- **`config/`**: Archivo YAML centralizado con todos los parámetros del proyecto
+- **`app.py`**: Página principal de Streamlit (home), punto de entrada de la aplicación
 
 ## 🚀 Instalación y Uso
 
@@ -102,13 +105,36 @@ streamlit run app.py
 
 La aplicación se abrirá en tu navegador (por defecto: `http://localhost:8501`)
 
+**Navegación**: La aplicación usa la arquitectura multi-page de Streamlit:
+- **Home (app.py)**: Página principal con descripción del proyecto
+- **📊 EDA**: Análisis exploratorio interactivo
+- **🎯 PCA**: Visualización de componentes principales  
+- **🤖 Autoencoder**: Entrenamiento y exploración del espacio latente
+
+### 5. Entrenar el Autoencoder
+
+Puedes entrenar el autoencoder de dos formas:
+
+**Opción A - Desde la interfaz web**:
+1. Ejecuta la app: `streamlit run app.py`
+2. Ve a la página "🤖 Autoencoder"
+3. Haz clic en "🚀 Entrenar Autoencoder"
+
+**Opción B - Desde la terminal**:
+```bash
+python scripts/train_autoencoder.py
+```
+
 ### 5. Ver Logs de TensorBoard (Opcional)
 
-Durante el entrenamiento del autoencoder, puedes monitorear el progreso en tiempo real:
+Durante el entrenamiento del autoencoder, PyTorch Lightning genera logs automáticamente. 
+Para visualizarlos en tiempo real:
 
 ```bash
 tensorboard --logdir=logs/
 ```
+
+Abre tu navegador en `http://localhost:6006` para ver métricas de entrenamiento, gráficos de pérdida, y más.
 
 ## 📈 Estrategia de Análisis
 
@@ -163,24 +189,47 @@ Input (8 features) → Encoder (Dense layers) → Latent Space (2-3D) → Decode
 
 ### Fase 4: Integración en Streamlit
 
-**Componentes de la App**:
+**Arquitectura Multi-Page de Streamlit**:
 
-1. **Página de inicio**: Descripción del proyecto y dataset
-2. **EDA Interactivo**:
-   - Selector de métricas y grupos
-   - Gráficos interactivos (Plotly)
-3. **PCA Visualization**:
-   - Sliders para seleccionar componentes
-   - Scatter plots coloreados por grupo/sexo
-4. **Autoencoder Dashboard**:
-   - Visualización del espacio latente
-   - Métricas de entrenamiento (integradas desde TensorBoard)
+La aplicación utiliza la estructura nativa de múltiples páginas de Streamlit:
+
+1. **Home (app.py)**: 
+   - Descripción del proyecto y dataset
+   - Métricas generales
+   - Vista previa de los datos
+
+2. **📊 EDA (pages/1_📊_EDA.py)**:
+   - Selección interactiva de métricas y grupos
+   - Gráficos de distribución (box, violin, histogram)
+   - Matriz de correlación interactiva
+   - Pruebas estadísticas automáticas (t-test/ANOVA)
+   - Scatter plot matrix
+   - Análisis por edad y participante
+
+3. **🎯 PCA (pages/2_🎯_PCA.py)**:
+   - Configuración dinámica del número de componentes
+   - Scree plot de varianza explicada
+   - Proyecciones 2D y 3D interactivas (Plotly)
+   - Análisis de loadings (contribución de variables)
+   - Colorización por grupo/sexo/participante
+   - Exportación de resultados
+
+4. **🤖 Autoencoder (pages/3_🤖_Autoencoder.py)**:
+   - Interfaz para entrenar el modelo desde la web
+   - Visualización del espacio latente 2D/3D
    - Comparación de reconstrucciones
-5. **Insights y Conclusiones**:
-   - Resumen de hallazgos
-   - Recomendaciones
+   - Métricas de error (MSE, MAE, RMSE)
+   - Comparación conceptual con PCA
+   - Exportación del espacio latente
+   - Instrucciones para TensorBoard
 
-**Ventaja**: Todo nativo en Streamlit, sin necesidad de exportar imágenes estáticas
+**Ventajas de esta arquitectura**:
+- ✅ Todo nativo en Streamlit (sin necesidad de frameworks adicionales)
+- ✅ Navegación automática mediante sidebar
+- ✅ Cache de datos para mejor rendimiento
+- ✅ Visualizaciones interactivas con Plotly
+- ✅ Entrenamiento del modelo integrado en la UI
+- ✅ Logs nativos de PyTorch Lightning visibles en TensorBoard
 
 ## 🛠️ Tecnologías Utilizadas
 
