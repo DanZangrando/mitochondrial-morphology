@@ -19,17 +19,26 @@ from src.data_loader import MitochondriaDataLoader
 from src.autoencoder import MitochondriaVAE, LSTMVariationalAutoencoder, prepare_dataloaders
 
 
-def train_vae(config_path: str = "config/config.yaml", use_lstm: bool = True):
+def train_vae(config_path: str = "config/config.yaml", use_lstm: bool = True, 
+              max_epochs: int = None, batch_size: int = None):
     """
     Train VAE model with classification head.
     
     Args:
         config_path: Path to configuration file
         use_lstm: If True, use LSTM-VAE (preserves sequences). If False, use standard VAE (aggregates).
+        max_epochs: Override max epochs from config (optional)
+        batch_size: Override batch size from config (optional)
     """
     # Load configuration
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
+    
+    # Override config if provided
+    if max_epochs is not None:
+        config['autoencoder']['training']['max_epochs'] = max_epochs
+    if batch_size is not None:
+        config['autoencoder']['training']['batch_size'] = batch_size
     
     model_type = "LSTM-VAE" if use_lstm else "Standard VAE"
     

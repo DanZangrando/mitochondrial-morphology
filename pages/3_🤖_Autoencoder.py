@@ -12,6 +12,10 @@ from sklearn.metrics import classification_report, confusion_matrix
 import sys
 import os
 import glob
+import subprocess
+import time
+import threading
+from streamlit_tensorboard import st_tensorboard
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.data_loader import MitochondriaDataLoader
@@ -59,30 +63,99 @@ col1, col2 = st.columns([2, 1])
 with col1:
     st.markdown("### Iniciar Entrenamiento")
     
-    st.info("""
-    **Antes de entrenar**, asegúrate de tener las dependencias instaladas:
+    # Model type selection
+    model_type = st.radio(
+        "Tipo de modelo",
+        options=["VAE estándar (mean pooling)", "LSTM-VAE (preserva secuencias)"],
+        help="VAE estándar agrega mediciones por participante. LSTM-VAE preserva la variabilidad intra-participante."
+    )
     
-    ```bash
-    pip install -r requirements.txt
-    ```
-    """)
+    use_lstm = model_type.startswith("LSTM")
     
-    if st.button("🚀 Entrenar Autoencoder", type="primary"):
-        with st.spinner("Entrenando modelo... Esto puede tomar varios minutos."):
+    if st.button("🚀 Entrenar Modelo", type="primary", key="train_button"):
+        # Create placeholders for training progress
+        status_text = st.empty()
+        progress_bar = st.progress(0)
+        metrics_placeholder = st.empty()
+        
+        # Container for TensorBoard
+        st.markdown("### 📊 Monitoreo en Tiempo Real")
+        tb_placeholder = st.empty()
+        
+        status_text.info("🔧 Iniciando entrenamiento...")
+        
+        try:
+            # Start TensorBoard in background
+            log_dir = "logs/lstm_vae_classifier" if use_lstm else "logs/vae_classifier"
+            os.makedirs(log_dir, exist_ok=True)
+            
+            # Kill any existing TensorBoard processes
             try:
-                # Import training function
-                from scripts.train_autoencoder import train_autoencoder
-                
-                # Train model
-                best_model_path = train_autoencoder()
-                
-                st.success(f"✓ Entrenamiento completado!")
-                st.success(f"Modelo guardado en: {best_model_path}")
-                st.balloons()
-                
-            except Exception as e:
-                st.error(f"Error durante el entrenamiento: {e}")
-                st.info("Puedes entrenar el modelo manualmente ejecutando: `python scripts/train_autoencoder.py`")
+                subprocess.run(["pkill", "-f", "tensorboard"], check=False)
+                time.sleep(1)
+            except:
+                pass
+            
+            # Start TensorBoard server
+            tb_port = 6006
+            tb_process = subprocess.Popen(
+                ["tensorboard", "--logdir", "logs/", "--port", str(tb_port), "--bind_all"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            
+            # Wait for TensorBoard to start
+            time.sleep(3)
+            
+            status_text.success("✓ TensorBoard iniciado")
+            
+            # Display TensorBoard in iframe
+            with tb_placeholder.container():
+                st.components.v1.iframe(
+                    f"http://localhost:{tb_port}",
+                    height=600,
+                    scrolling=True
+                )
+            
+            # Run training in a separate thread to keep UI responsive
+            status_text.info("🏋️ Entrenando modelo... (esto puede tomar varios minutos)")
+            
+            # Import and run training
+            import sys
+            import io
+            from contextlib import redirect_stdout, redirect_stderr
+            
+            # Capture training output
+            from scripts.train_autoencoder import train_vae
+            
+            # Prepare training arguments
+            kwargs = {
+                'use_lstm': use_lstm,
+                'max_epochs': 100,  # From config
+                'batch_size': 4 if use_lstm else 16,
+            }
+            
+            # Train model with progress updates
+            best_model_path = train_vae(**kwargs)
+            
+            progress_bar.progress(100)
+            status_text.success("✓ Entrenamiento completado!")
+            st.success(f"📦 Modelo guardado en: `{best_model_path}`")
+            st.balloons()
+            
+            # Show final metrics
+            with metrics_placeholder.container():
+                st.markdown("### 📈 Resumen del Entrenamiento")
+                st.info("Consulta TensorBoard arriba para ver las métricas detalladas de entrenamiento.")
+            
+        except Exception as e:
+            status_text.error(f"❌ Error durante el entrenamiento: {e}")
+            st.exception(e)
+            st.info("💡 También puedes entrenar manualmente desde la terminal:")
+            if use_lstm:
+                st.code("python scripts/train_autoencoder.py --lstm", language="bash")
+            else:
+                st.code("python scripts/train_autoencoder.py", language="bash")
 
 with col2:
     st.markdown("### Configuración Actual")
@@ -489,20 +562,68 @@ else:
 
 # TensorBoard section
 st.markdown("---")
-st.markdown("## 📈 Monitoreo con TensorBoard")
+st.markdown("## 📈 Visualizar Entrenamientos Anteriores")
 
 st.markdown("""
-Para visualizar las métricas de entrenamiento en tiempo real, ejecuta en tu terminal:
-
-```bash
-tensorboard --logdir=logs/
-```
-
-Luego abre tu navegador en `http://localhost:6006` para ver:
-- Curvas de pérdida (train/val)
-- Learning rate schedule
-- Arquitectura del modelo
-- Y más...
+Puedes visualizar las métricas de entrenamientos anteriores directamente aquí:
 """)
 
-st.info("💡 TensorBoard se integra nativamente con PyTorch Lightning, registrando automáticamente todas las métricas durante el entrenamiento.")
+# Check if logs exist
+log_dirs = []
+if os.path.exists("logs/vae_classifier"):
+    log_dirs.append("VAE Estándar")
+if os.path.exists("logs/lstm_vae_classifier"):
+    log_dirs.append("LSTM-VAE")
+
+if log_dirs:
+    view_logs = st.checkbox("Ver logs de TensorBoard", value=False)
+    
+    if view_logs:
+        st.markdown("### 📊 TensorBoard - Métricas de Entrenamiento")
+        
+        # Start TensorBoard if not running
+        try:
+            # Check if TensorBoard is already running
+            tb_running = False
+            try:
+                import requests
+                response = requests.get("http://localhost:6006", timeout=1)
+                tb_running = True
+            except:
+                pass
+            
+            if not tb_running:
+                st.info("Iniciando TensorBoard...")
+                subprocess.Popen(
+                    ["tensorboard", "--logdir", "logs/", "--port", "6006", "--bind_all"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE
+                )
+                time.sleep(3)
+            
+            # Display TensorBoard
+            st.components.v1.iframe(
+                "http://localhost:6006",
+                height=800,
+                scrolling=True
+            )
+            
+        except Exception as e:
+            st.error(f"Error al iniciar TensorBoard: {e}")
+            st.info("Puedes iniciar TensorBoard manualmente con: `tensorboard --logdir=logs/`")
+else:
+    st.info("No hay logs de entrenamiento disponibles. Entrena un modelo primero.")
+
+st.markdown("---")
+st.markdown("""
+### 💡 Sobre TensorBoard
+
+TensorBoard muestra:
+- **Scalars**: Pérdidas (train/val), accuracy, learning rate
+- **Histograms**: Distribución de pesos y gradientes
+- **Graphs**: Arquitectura del modelo
+- **Time Series**: Evolución temporal de las métricas
+
+Durante el entrenamiento, las métricas se actualizan automáticamente. 
+Puedes pausar, hacer zoom y comparar diferentes runs.
+""")
