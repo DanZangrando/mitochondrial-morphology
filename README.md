@@ -39,8 +39,8 @@ mitochondrial-morphology/
 │
 ├── pages/
 │   ├── 1_📊_EDA.py                 # Página de Análisis Exploratorio
-│   ├── 2_🎯_PCA.py                 # Página de Análisis PCA
-│   └── 3_🤖_Autoencoder.py         # Página de Entrenamiento y Visualización
+│   ├── 2_�_Entrenar_Modelo.py     # Página de Entrenamiento con TensorBoard
+│   └── 3_🤖_Autoencoder.py         # Página de Visualización de Modelos
 │
 ├── scripts/
 │   └── train_autoencoder.py        # Script para entrenar el autoencoder
@@ -108,28 +108,37 @@ La aplicación se abrirá en tu navegador (por defecto: `http://localhost:8501`)
 **Navegación**: La aplicación usa la arquitectura multi-page de Streamlit:
 - **Home (app.py)**: Página principal con descripción del proyecto
 - **📊 EDA**: Análisis exploratorio interactivo
-- **🎯 PCA**: Visualización de componentes principales  
-- **🤖 Autoencoder**: Entrenamiento y exploración del espacio latente
+- **� Entrenar Modelo**: Entrenar VAE/LSTM-VAE con TensorBoard en tiempo real
+- **🤖 Autoencoder**: Visualización del espacio latente y métricas
 
 ### 5. Entrenar el Autoencoder
 
 Puedes entrenar el autoencoder de dos formas:
 
-**Opción A - Desde la interfaz web**:
+**Opción A - Desde la interfaz web (Recomendado)**:
 1. Ejecuta la app: `streamlit run app.py`
-2. Ve a la página "🤖 Autoencoder"
-3. Haz clic en "🚀 Entrenar Autoencoder"
+2. Ve a la página "🎓 Entrenar Modelo"
+3. Selecciona el tipo de modelo:
+   - **VAE Estándar**: Agrega mediciones por participante (mean pooling)
+   - **LSTM-VAE**: Preserva variabilidad intra-participante (secuencias completas)
+4. Configura hiperparámetros (epochs, learning rate, batch size, patience)
+5. Haz clic en "🚀 Iniciar Entrenamiento"
+6. **TensorBoard se abre automáticamente en la misma página** mostrando métricas en tiempo real
 
 **Opción B - Desde la terminal**:
 ```bash
+# VAE estándar
 python scripts/train_autoencoder.py
+
+# LSTM-VAE (preserva variabilidad intra-participante)
+python scripts/train_autoencoder.py --lstm
 ```
 
-### 5. Ver Logs de TensorBoard (Opcional)
+### 6. Ver Logs de TensorBoard
 
-Durante el entrenamiento del autoencoder, PyTorch Lightning genera logs automáticamente. 
-Para visualizarlos en tiempo real:
+**Durante el entrenamiento desde Streamlit**: TensorBoard se muestra automáticamente en un iframe embebido.
 
+**Manualmente** (opcional):
 ```bash
 tensorboard --logdir=logs/
 ```
@@ -166,26 +175,53 @@ Abre tu navegador en `http://localhost:6006` para ver métricas de entrenamiento
 - ¿Se separan los grupos CT y ELA en el espacio PCA?
 - ¿Qué métricas contribuyen más a cada componente?
 
-### Fase 3: Autoencoder con PyTorch Lightning
+### Fase 3: Variational Autoencoder (VAE) con PyTorch Lightning
 
-**Objetivo**: Aprender una representación comprimida del espacio latente
+**Objetivo**: Aprender una representación probabilística comprimida del espacio latente
 
-**Arquitectura Propuesta**:
+**Dos Arquitecturas Disponibles**:
+
+#### 1. VAE Estándar (Mean Pooling)
 ```
-Input (8 features) → Encoder (Dense layers) → Latent Space (2-3D) → Decoder → Output (8 features)
+Input (8 features agregadas) → Encoder [64, 32] → Latent 8D (μ, σ) → Decoder [32, 64] → Output (8 features)
+                                                        ↓
+                                                 Classifier [16] → CT/ELA
 ```
+- **Ventaja**: Rápido, simple, interpretable
+- **Desventaja**: Pierde variabilidad intra-participante
+
+#### 2. LSTM-VAE (Sequences)
+```
+Input (secuencias 4-36 mediciones × 8 features) → Bidirectional LSTM Encoder (2 capas, hidden=64)
+                                                        ↓
+                                                 Latent 16D (μ, σ)
+                                                        ↓
+                                          Decoder LSTM (2 capas, hidden=64)
+                                                        ↓
+                                          Output (secuencias reconstruidas)
+                                                        ↓
+                                          Classifier [32, 16] → CT/ELA
+```
+- **Ventaja**: Preserva variabilidad intra-participante, mayor capacidad
+- **Desventaja**: Más lento, más parámetros (~205k vs ~6k)
 
 **Configuración**:
 - **Framework**: PyTorch Lightning (simplifica entrenamiento, logging automático)
-- **Loss**: MSE (Mean Squared Error) para reconstrucción
-- **Optimizer**: Adam
-- **Logging**: TensorBoard nativo de Lightning (`TensorBoardLogger`)
-- **Callbacks**: Early Stopping, ModelCheckpoint
+- **Loss**: Reconstrucción + KL Divergence + Clasificación
+- **Optimizer**: Adam con learning rate configurable
+- **Logging**: TensorBoard embebido en Streamlit (tiempo real)
+- **Callbacks**: Early Stopping, ModelCheckpoint, LearningRateMonitor
+
+**Monitoreo en Tiempo Real**:
+- TensorBoard se muestra **dentro de Streamlit** durante el entrenamiento
+- Métricas: loss, accuracy, KL divergence, reconstruction error
+- Visualizaciones: curvas de aprendizaje, histogramas de pesos
 
 **Visualización**:
-- Proyección del espacio latente en 2D/3D
-- Comparar con PCA: ¿El autoencoder captura estructura no lineal?
-- Visualizar reconstrucciones vs datos originales
+- Proyección del espacio latente en 2D/3D por grupo (CT/ELA)
+- Métricas de clasificación (accuracy, confusion matrix)
+- Comparar reconstrucciones vs datos originales
+- Identificar si la variabilidad intra-participante mejora la clasificación
 
 ### Fase 4: Integración en Streamlit
 
@@ -206,30 +242,71 @@ La aplicación utiliza la estructura nativa de múltiples páginas de Streamlit:
    - Scatter plot matrix
    - Análisis por edad y participante
 
-3. **🎯 PCA (pages/2_🎯_PCA.py)**:
-   - Configuración dinámica del número de componentes
-   - Scree plot de varianza explicada
-   - Proyecciones 2D y 3D interactivas (Plotly)
-   - Análisis de loadings (contribución de variables)
-   - Colorización por grupo/sexo/participante
-   - Exportación de resultados
+3. **� Entrenar Modelo (pages/2_�_Entrenar_Modelo.py)** ⭐ **NUEVO**:
+   - Selección de tipo de modelo (VAE estándar vs LSTM-VAE)
+   - Configuración interactiva de hiperparámetros:
+     - Max epochs, learning rate, batch size, early stopping patience
+   - **TensorBoard embebido en tiempo real** durante el entrenamiento
+   - Visualización de métricas: loss, accuracy, KL divergence
+   - Ver entrenamientos anteriores y comparar runs
+   - Guías contextuales sobre arquitecturas y hiperparámetros
+   - Todo integrado - no necesitas abrir terminales adicionales
 
 4. **🤖 Autoencoder (pages/3_🤖_Autoencoder.py)**:
-   - Interfaz para entrenar el modelo desde la web
-   - Visualización del espacio latente 2D/3D
-   - Comparación de reconstrucciones
-   - Métricas de error (MSE, MAE, RMSE)
+   - Carga de modelos entrenados (VAE o LSTM-VAE)
+   - Detección automática del tipo de modelo
+   - Visualización del espacio latente 2D/3D (Plotly interactivo)
+   - Métricas de clasificación (accuracy, confusion matrix)
+   - Análisis de reconstrucciones
    - Comparación conceptual con PCA
    - Exportación del espacio latente
-   - Instrucciones para TensorBoard
+   - Ver logs históricos de TensorBoard
 
 **Ventajas de esta arquitectura**:
 - ✅ Todo nativo en Streamlit (sin necesidad de frameworks adicionales)
 - ✅ Navegación automática mediante sidebar
 - ✅ Cache de datos para mejor rendimiento
 - ✅ Visualizaciones interactivas con Plotly
+- ✅ **TensorBoard embebido en tiempo real** - sin abrir ventanas adicionales
 - ✅ Entrenamiento del modelo integrado en la UI
+- ✅ Comparación fácil entre VAE estándar y LSTM-VAE
 - ✅ Logs nativos de PyTorch Lightning visibles en TensorBoard
+- ✅ Workflow completo: configurar → entrenar → monitorear → visualizar
+
+## 🆕 Características Destacadas
+
+### TensorBoard en Tiempo Real
+
+La nueva página de entrenamiento incluye **TensorBoard embebido** que muestra métricas en tiempo real:
+
+- 📊 **Curvas de aprendizaje**: Loss y accuracy (train/validation)
+- 📈 **KL Divergence**: Regularización del espacio latente
+- 🔍 **Reconstruction Loss**: Calidad de reconstrucción
+- 🎯 **Classification Metrics**: Accuracy de CT vs ELA
+- 📉 **Learning Rate**: Evolución durante entrenamiento
+
+**Sin necesidad de:**
+- Abrir terminales adicionales
+- Ejecutar comandos TensorBoard manualmente
+- Cambiar entre ventanas
+
+**Todo en una sola interfaz web integrada.**
+
+### Dos Modelos para Comparar
+
+1. **VAE Estándar (Mean Pooling)**:
+   - Agrega múltiples mediciones por participante
+   - ~6,700 parámetros
+   - Entrenamiento rápido (~2-5 min)
+   - Baseline sólido
+
+2. **LSTM-VAE (Sequences)**:
+   - Preserva variabilidad intra-participante
+   - ~205,850 parámetros
+   - Entrenamiento más lento (~5-15 min)
+   - Captura patrones temporales/secuenciales
+
+**Pregunta de Investigación**: ¿La variabilidad intra-participante mejora la clasificación CT vs ELA?
 
 ## 🛠️ Tecnologías Utilizadas
 
@@ -257,6 +334,15 @@ La aplicación utiliza la estructura nativa de múltiples páginas de Streamlit:
 3. ¿El PCA revela separación natural entre grupos?
 4. ¿El autoencoder captura patrones no lineales que el PCA no detecta?
 5. ¿Hay clusterización por participante o características demográficas?
+6. **¿La variabilidad intra-participante (LSTM-VAE) mejora la clasificación vs mean pooling (VAE estándar)?** ⭐
+
+## 📚 Documentación Adicional
+
+- **`LSTM_VAE_ARCHITECTURE.md`**: Guía técnica detallada de la arquitectura LSTM-VAE
+- **`docs/TRAINING_GUIDE.md`**: Guía completa de entrenamiento con TensorBoard
+- **`TENSORBOARD_INTEGRATION_SUMMARY.md`**: Resumen de integración y características
+- **`test_lstm_vae.py`**: Script de validación de la implementación LSTM-VAE
+- **`test_tensorboard_integration.py`**: Test de integración de TensorBoard
 
 ## 🤝 Contribuciones
 
@@ -272,4 +358,29 @@ Daniel - Análisis de morfología mitocondrial
 
 ---
 
-**Nota**: Este proyecto utiliza PyTorch Lightning para el entrenamiento del autoencoder, lo que permite una integración nativa con TensorBoard para monitorear métricas en tiempo real, que luego se visualizan directamente en la aplicación Streamlit.
+**Nota**: Este proyecto utiliza PyTorch Lightning para el entrenamiento del autoencoder, con **TensorBoard embebido en Streamlit** para monitorear métricas en tiempo real. La integración completa permite entrenar, monitorear y visualizar modelos sin salir del navegador.
+
+## 🎯 Inicio Rápido
+
+```bash
+# 1. Clonar repositorio
+git clone https://github.com/DanZangrando/mitochondrial-morphology.git
+cd mitochondrial-morphology
+
+# 2. Instalar dependencias
+pip install -r requirements.txt
+
+# 3. Ejecutar aplicación
+streamlit run app.py
+
+# 4. Entrenar modelo
+# Ir a página "🎓 Entrenar Modelo" en el navegador
+# Seleccionar tipo de modelo y configurar hiperparámetros
+# Click en "🚀 Iniciar Entrenamiento"
+# TensorBoard se abre automáticamente mostrando métricas en tiempo real
+
+# 5. Visualizar resultados
+# Ir a página "🤖 Autoencoder"
+# Cargar modelo entrenado
+# Explorar espacio latente y métricas
+```
