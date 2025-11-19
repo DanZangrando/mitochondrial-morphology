@@ -715,9 +715,7 @@ streamlit run app.py --server.port 8502
 
 ## 👤 AutorFold 5: Train [16 participants] → Val [4 participants] (diferentes)
 
-
-
-Daniel Zangrando - Análisis de morfología mitocondrial**Dos Arquitecturas Disponibles**:
+  Análisis de morfología mitocondrial**Dos Arquitecturas Disponibles**:
 
 
 
@@ -1057,19 +1055,6 @@ streamlit run app.py --server.port 8502
 4. **Más datos**: Si es posible, aumentar N participantes
 
 5. **Transfer learning**: Pre-entrenar en datasets similaresEste es un proyecto de investigación. Las sugerencias y mejoras son bienvenidas.
-
-
-
----## 📝 Licencia
-
-
-
-**Última actualización**: Noviembre 2025[Especificar licencia si aplica]
-
-
-## 👤 Autor
-
-Daniel - Análisis de morfología mitocondrial
 
 ---
 
