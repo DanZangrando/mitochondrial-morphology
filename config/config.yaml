@@ -30,33 +30,35 @@ pca:
   n_components: 3
   standardize: true
 
-# VAE (Variational Autoencoder) configuration
-autoencoder:
+# LSTM Classifier configuration
+classifier:
   architecture:
-    input_dim: 8  # Number of numerical features (excluding metadata)
-    encoder_layers: [64, 32]  # Deeper encoder for VAE
-    latent_dim: 8  # Latent space dimension (increased for better representation)
-    decoder_layers: [32, 64]  # Symmetric decoder
-    classifier_layers: [16]  # Classification head
+    input_dim: 8  # Number of morphometric features (excluding metadata)
+    hidden_dim: 64  # LSTM hidden dimension
+    num_layers: 2  # Number of LSTM layers
+    dropout_rate: 0.3  # Dropout for regularization
+    bidirectional: true  # Use bidirectional LSTM
+    fc_layers: [128, 64, 32]  # Fully connected classifier head
     num_classes: 2  # CT vs ELA
   
   training:
-    batch_size: 16  # Smaller batch for participant-level aggregation
-    max_epochs: 200  # More epochs for VAE convergence
-    learning_rate: 0.0005  # Lower LR for stable VAE training
-    early_stopping_patience: 20  # More patience for VAE
-    kl_weight: 0.001  # Weight for KL divergence loss
-    classification_weight: 1.0  # Weight for classification loss
-    dropout_rate: 0.2  # Dropout for regularization
-    use_participant_aggregation: true  # Aggregate measurements by participant
-    aggregation_method: "mean"  # How to aggregate (mean, median, max)
+    batch_size: 16
+    max_epochs: 50
+    learning_rate: 0.001
+    early_stopping_patience: 15
+    early_stopping_min_delta: 0.001
+    checkpoint_monitor: 'val_acc'
+    checkpoint_save_top_k: 3
+    val_split: 0.2  # Proportion of participants for validation
+    random_state: 42
     
   logging:
     log_dir: "logs/"
-    experiment_name: "vae_classifier"
+    experiment_name: "lstm_classifier"
 
 # Visualization
 visualization:
   color_by_default: "Group"
   figure_size: [10, 8]
   style: "whitegrid"
+

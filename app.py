@@ -53,7 +53,8 @@ identificar patrones y diferencias entre grupos de estudio (Control vs ELA).
 
 1. **Análisis Exploratorio de Datos (EDA)**: Examinar distribuciones y diferencias estadísticas
 2. **Reducción Dimensional (PCA)**: Visualizar la estructura de los datos en componentes principales
-3. **Autoencoder**: Explorar el espacio latente aprendido por deep learning
+3. **Clasificación Supervisada (LSTM)**: Entrenar modelo clasificador con K-Fold Cross-Validation
+4. **Evaluación de Resultados**: Analizar métricas, confusion matrix y predicciones
 
 ### 📊 Dataset
 
@@ -199,9 +200,15 @@ try:
     
     1. **📊 EDA - Análisis Exploratorio**: Visualiza distribuciones, correlaciones y pruebas estadísticas
     2. **🎯 PCA - Análisis de Componentes**: Explora la reducción dimensional con PCA
-    3. **🤖 Autoencoder**: Entrena y visualiza el espacio latente del autoencoder
+    3. **🎯 Entrenar Clasificador**: Entrena el modelo LSTM con split Train/Val
     
-    Cada página contiene visualizaciones interactivas y análisis detallados.
+    La página de entrenamiento incluye:
+    - Configuración de hiperparámetros del modelo
+    - Selección de parámetros de entrenamiento
+    - Barra de progreso durante el entrenamiento
+    - Visualización de resultados y métricas
+    - Matriz de confusión interactiva
+    - Evaluación detallada por participante
     """)
 
 except Exception as e:
@@ -212,6 +219,7 @@ except Exception as e:
 st.markdown("---")
 st.markdown("""
 <div style='text-align: center; color: #7f8c8d;'>
-    <p>Análisis de Morfología Mitocondrial | Powered by Streamlit + PyTorch Lightning</p>
+    <p>Análisis de Morfología Mitocondrial - LSTM Classifier con K-Fold CV</p>
+    <p>Powered by Streamlit + PyTorch Lightning + TensorBoard</p>
 </div>
 """, unsafe_allow_html=True)
