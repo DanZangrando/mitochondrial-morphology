@@ -29,11 +29,6 @@ Proyecto de clasificación supervisada que utiliza **deep learning con LSTM** pa
 ### 📐 Métricas Morfológicas Analizadas- **Dataset pequeño**: 20 participantes (10 CT, 10 ELA) con secuencias de longitud variable (4-36 mediciones)
 
 
-
-**8 features de entrada** (todas agregadas SUMA/PROM por mitocondria):- **K-Fold Cross-Validation**: Entrenamiento robusto con validación cruzada estratificadaLos datos contienen las siguientes métricas por mitocondria:
-
-
-
 - **IsoVol**: Volumen isométrico- **LSTM Bidireccional**: Captura patrones en secuencias de mediciones
 
 - **Surface**: Área de superficie
@@ -44,7 +39,7 @@ Proyecto de clasificación supervisada que utiliza **deep learning con LSTM** pa
 
 - **IsoVol (SUMA/PROM)**: Volumen isométrico total y promedio
 
-**Variables demográficas** (NO usadas como input del modelo):
+
 
 ### 📐 Métricas Morfológicas Analizadas- **Surface (SUMA/PROM)**: Superficie total y promedio
 
