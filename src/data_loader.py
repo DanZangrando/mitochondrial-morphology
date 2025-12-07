@@ -36,7 +36,20 @@ class MitochondriaDataLoader:
     
     def get_feature_columns(self) -> List[str]:
         """Get list of numerical feature columns for analysis."""
-        # Exclude demographic/metadata columns
+        # Try to load from config file
+        try:
+            import json
+            import os
+            config_path = "config/selected_variables.json"
+            if os.path.exists(config_path):
+                with open(config_path, 'r') as f:
+                    selected_features = json.load(f)
+                if selected_features and isinstance(selected_features, list):
+                    return selected_features
+        except Exception as e:
+            print(f"Warning: Could not load selected variables config: {e}")
+
+        # Default fallback
         features = [
             'PROM IsoVol', 'PROM Surface', 'PROM Length', 'PROM RoughSph',
             'SUMA IsoVol', 'SUMA Surface', 'SUMA Length', 'SUMA RoughSph'

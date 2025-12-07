@@ -30,21 +30,6 @@ ENV/
 env.bak/
 venv.bak/
 
-# Jupyter Notebook
-.ipynb_checkpoints
-*/.ipynb_checkpoints/*
-
-# PyTorch Lightning and TensorBoard
-logs/
-lightning_logs/
-*.ckpt
-*.pt
-*.pth
-
-# Models (except .gitkeep)
-models/*
-!models/.gitkeep
-
 # IDE
 .vscode/
 .idea/
@@ -60,19 +45,17 @@ Thumbs.db
 .env
 .env.local
 
-# Data (if you don't want to track large datasets)
-# Uncomment if needed:
-# data/*.csv
-# data/*.parquet
-
-# Streamlit
-.streamlit/secrets.toml
-.streamlit/config.toml
-
 # Testing
 .pytest_cache/
 .coverage
 htmlcov/
 
-# Other
+# Project specific
+models/*.ckpt
+models/kfold_*/
+logs/
 *.log
+
+# Backups
+*.old
+

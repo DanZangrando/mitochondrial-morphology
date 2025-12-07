@@ -61,6 +61,61 @@ identificar patrones y diferencias entre grupos de estudio (Control vs ELA).
 El dataset contiene métricas morfológicas de mitocondrias individuales:
 """)
 
+    # --- Configuration Section ---
+import json
+import os
+
+CONFIG_PATH = "config/selected_variables.json"
+
+def save_config(selected_vars):
+    os.makedirs("config", exist_ok=True)
+    with open(CONFIG_PATH, 'w') as f:
+        json.dump(selected_vars, f)
+    st.success("✅ Configuración guardada correctamente. Las otras páginas usarán estas variables.")
+
+def load_config():
+    if os.path.exists(CONFIG_PATH):
+        with open(CONFIG_PATH, 'r') as f:
+            return json.load(f)
+    return [
+        'PROM IsoVol', 'PROM Surface', 'PROM Length', 'PROM RoughSph',
+        'SUMA IsoVol', 'SUMA Surface', 'SUMA Length', 'SUMA RoughSph'
+    ]
+
+# Load data for column detection
+try:
+    data = pd.read_csv('data/data.csv')
+    
+    # Identify potential numerical columns (excluding known metadata)
+    exclude_cols = ['Participant', 'Group', 'Sex', 'Age', 'N mitocondrias', 'Unnamed: 0']
+    numeric_cols = data.select_dtypes(include=['float64', 'int64']).columns.tolist()
+    available_vars = [c for c in numeric_cols if c not in exclude_cols]
+    
+    st.markdown("### ⚙️ Configuración de Variables del Estudio")
+    
+    with st.expander("Seleccionar Variables para Análisis", expanded=True):
+        st.info("Selecciona las variables que deseas utilizar en todo el estudio (EDA, Clasificación, etc). Esta configuración se guardará como 'Ground Truth'.")
+        
+        current_vars = load_config()
+        # Ensure current_vars are in available_vars
+        current_vars = [v for v in current_vars if v in available_vars]
+        
+        selected_vars = st.multiselect(
+            "Variables Seleccionadas",
+            options=available_vars,
+            default=current_vars
+        )
+        
+        if st.button("💾 Guardar Configuración"):
+            save_config(selected_vars)
+            st.rerun()
+            
+        st.write(f"**Variables activas ({len(selected_vars)}):** {', '.join(selected_vars)}")
+
+except Exception as e:
+    st.error(f"Error al cargar datos para configuración: {e}")
+
+
 # Load and display data overview
 try:
     # Direct load without data_loader for more robustness
@@ -175,7 +230,7 @@ try:
     # Statistics summary
     st.markdown("### 📈 Resumen Estadístico por Grupo")
     
-    feature_cols = ['N mitocondrias', 'PROM IsoVol', 'PROM Surface', 'PROM Length', 'PROM RoughSph']
+    feature_cols = ['N mitocondrias'] + load_config()
     
     col1, col2 = st.columns(2)
     
